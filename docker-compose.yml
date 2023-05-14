@@ -1,0 +1,14 @@
+# Local development enviroment config
+version: '3.9'
+
+services:
+  app:
+    build:
+      # the `.` means it will use our Dockerfile to build the project
+      context: .
+    # locally this command will overide the uwsgi command in the Dockerfile 
+    command: sh -c "python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - ./app:/app
+    ports:
+      - 8000:8000

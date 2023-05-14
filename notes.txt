@@ -1,0 +1,20 @@
+https://londonappdeveloper.com/django-docker-deployment-with-https-using-letsencrypt/
+
+1) getting certificate (firs run - first deployment)
+2) Serving https
+3) Renewing certificates (periodic) - Automated cron job will renew the certificate before 3 months passed
+
+Workflow
+===========
+- Create Dockerfile for Django app
+- Create docker-compose.yml file
+- create app/
+
+- Run inside terminal
+
+💲 docker-compose run --rm app sh -c "django-admin startproject app ."
+Ecplanation:
+  # --rm --> removes the container after its creation, The images will stay and the volumes will stay.
+  # sh -c --> running a shell command
+
+💲 docker-compose up
