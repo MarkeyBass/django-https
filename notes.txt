@@ -496,11 +496,15 @@ starting the server ❗❗❗
 In case of error
 -----------------
 Track the error fix commit and push to github
---> 💲 docker-compose down
---> 💲 git pull origin
+-->
+  💲 docker-compose -f docker-compose.deploy.yml down
+  💲 docker volume prune
+  💲 git pull origin
+  💲 docker-compose -f docker-compose.deploy.yml build
+  💲 docker-compose -f docker-compose.deploy.yml up
 
 
-💲 docker-compose -f docker-compose.deploy.yml down
-💲 git pull origin
-💲 docker-compose -f docker-compose.deploy.yml build
-💲 docker-compose -f docker-compose.deploy.yml up
+
+runnung in the background
+---------------------------
+docker-compose -f docker-compose.deploy.yml up -d
