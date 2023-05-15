@@ -5,7 +5,7 @@ set -e
 echo "Checking for dhparams.pem"
 if [ ! -f "/vol/proxy/ssl-dhparams.pem" ]; then
   echo "dhparams.pem does not exist - creating it"
-  # same volume location is in default.ssl.conf.tpl file
+  # same volume location is in default-ssl.conf.tpl file
   openssl dhparam -out /vol/proxy/ssl-dhparams.pem 2048
 fi
 
