@@ -493,3 +493,12 @@ starting the server ❗❗❗
 (restart the server so it can run on https mode)
 💲 docker-compose -f docker-compose.deploy.yml up
 
+In case of error
+-----------------
+Track the error fix commit and push to github
+--> 💲 docker-compose down
+--> 💲 git pull origin
+
+
+💲 docker-compose -f docker-compose.deploy.yml down
+💲 docker-compose -f docker-compose.deploy.yml up
