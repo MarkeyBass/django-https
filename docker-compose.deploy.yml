@@ -1,0 +1,47 @@
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: .
+    restart: always
+    environment:
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - DJANGO_ALLOWED_HOSTS=${DOMAIN}
+
+  proxy:
+    build:
+      context: ./docker/proxy
+    restart: always
+    depends_on:
+      - app
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - certbot-web:/vol/www
+      - proxy-dhparams:/vol/proxy
+      - certbot-certs:/etc/letsencrypt
+    environment:
+      - DOMAIN=${DOMAIN}
+
+  # We'll be using certbot in letsencypt certificate initialisation and renuals
+  certbot:
+    build:
+      context: ./docker/certbot
+    command: echo "Skipping..."
+    environment:
+      - EMAIL=${ACME_DEFAULT_EMAIL}
+      - DOMAIN=${DOMAIN}
+    volumes:
+      - certbot-web:/vol/www   # serve th chalange
+      - certbot-certs:/etc/letsencrypt/  # store the certificate
+    depends_on:
+      - proxy
+
+# Docker will mennage the volume paths for us. 
+# We'll be able to access the volumes based on th enames
+volumes:
+  certbot-web:
+  proxy-dhparams:
+  certbot-certs:

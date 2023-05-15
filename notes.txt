@@ -1,16 +1,18 @@
 https://londonappdeveloper.com/django-docker-deployment-with-https-using-letsencrypt/
 
+❗ important - whenever you encounter `#` inside Nginx conf.tpl configuration files - do not copy those
+
 1) getting certificate (firs run - first deployment)
 2) Serving https
 3) Renewing certificates (periodic) - Automated cron job will renew the certificate before 3 months passed
 
 Workflow
 ===========
-- Create Dockerfile for Django app
-- Create docker-compose.yml file
-- create app/
+--> Create Dockerfile for Django app
+--> Create docker-compose.yml file
+--> create app/
 
-- Run inside terminal
+--> Run inside terminal
 
 💲 docker-compose run --rm app sh -c "django-admin startproject app ."
 Ecplanation:
@@ -18,3 +20,381 @@ Ecplanation:
   # sh -c --> running a shell command
 
 💲 docker-compose up
+
+--> open browser at http://127.0.0.1:8000/
+
+💲 git add .
+💲 git commit -am "added new django project"
+
+💲 docker-compose run --rm app sh -c "python manage.py startapp home 
+
+
+--> Open settings.py and add the new home app to the INSTALLED_APPS list:
+----------------------------------------------------------------------------
+
+INSTALLED_APPS = [
+    ...
+    'home',
+]
+
+
+--> Create a new file (and subdirectories) at app/home/templates/home/index.html and add the following contents:
+--------------------------------------------------------------------------------------------------------------------
+
+    <html>
+      <head>
+        <title>Django with HTTPS</title>
+      </head>
+      <body>
+        <h1>Hello!</h1>
+        <p>This is a Django app with HTTPS enabled!</p>
+      </body>
+    </html>
+
+
+--> Update home/views.py to look like this:
+---------------------------------------------
+from django.shortcuts import render
+
+def index(request):
+    return render(request, "home/index.html")
+
+
+--> Now we need to wire this view up to a URL. Do this by editing app/app/urls.py to look like this:
+---------------------------------------------------------------------------------------------------------
+from django.contrib import admin
+from django.urls import path
+
+from home import views
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('', views.index),
+]
+
+
+💲 git add .
+💲 git commit -am "added django app"
+
+
+--> Add NGINX Docker Image
+---------------------------
+First we’ll create our default config template at docker/proxy/nginx/default.conf.tpl:
+this file will be used before we have the certificate
+
+    server {
+        listen 80;
+        # The variables will be replaced by env variables served in our container 
+        server_name ${DOMAIN} www.${DOMAIN};
+        
+        # where letsencypt expects to find the chalange file in order to complete the authentication
+        # we need to serve this location and make it accesible on port 80
+        location /.well-known/acme-challenge/ {
+            root /vol/www/;
+        }
+
+        # a fallback block that redirects to https
+        location / {
+            return 301 https://$host$request_uri;
+        }
+    }
+
+
+--> Now create a second file at docker/proxy/nginx/default-ssl.conf.tpl and add the following:
+this file will ne used after we create the certificate 
+
+    server {
+        listen 80;
+        server_name ${DOMAIN} www.${DOMAIN};
+
+        location /.well-known/acme-challenge/ {
+            root /vol/www/;
+        }
+
+        location / {
+            return 301 https://$host$request_uri;
+        }
+    }
+
+    server {
+        listen      443 ssl;
+        server_name ${DOMAIN} www.${DOMAIN};
+
+        ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+        # the volium we'll be mapping our certificate fromour certbot
+        ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+
+        # a config file from certbot github page - serving certbot generated certificate using nginx
+        include     /etc/nginx/options-ssl-nginx.conf;
+
+        # strengthening the encryption
+        ssl_dhparam /vol/proxy/ssl-dhparams.pem;
+
+        # Adds a header to the request so that the browser will remember that this web domain should be accessed via https
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+        # configuration for serving Django static files
+        location /static {
+            alias /vol/static;
+        }
+
+        # fall back block to forward the request using uwsgi_pass to ${APP_HOST}:${APP_PORT}; 
+        location / {
+            uwsgi_pass           ${APP_HOST}:${APP_PORT};
+            include              /etc/nginx/uwsgi_params;
+            # ❗ max size of files that can be uploaded to the django app
+            client_max_body_size 10M;
+        }
+    }
+
+
+--> Adding options SSL configuration 
+-------------------------------------
+Add a new file at docker/proxy/nginx/options-ssl-nginx.conf with the following contents:
+# Taken from:
+# https://github.com/certbot/certbot/blob/1.28.0/certbot-nginx/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf
+
+
+    ssl_session_cache shared:le_nginx_SSL:10m;
+    ssl_session_timeout 1440m;
+    ssl_session_tickets off;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    ssl_ciphers "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384";
+
+
+
+--> Create a new file at docker/proxy/nginx/uwsgi_params and add the following contents:
+------------------------------------------------------------------------------------------
+We need this file in order to send the right headers to our uWSGI service from Nginx
+https://uwsgi-docs.readthedocs.io/en/latest/Nginx.html
+
+
+    uwsgi_param QUERY_STRING $query_string;
+    uwsgi_param REQUEST_METHOD $request_method;
+    uwsgi_param CONTENT_TYPE $content_type;
+    uwsgi_param CONTENT_LENGTH $content_length;
+    uwsgi_param REQUEST_URI $request_uri;
+    uwsgi_param PATH_INFO $document_uri;
+    uwsgi_param DOCUMENT_ROOT $document_root;
+    uwsgi_param SERVER_PROTOCOL $server_protocol;
+    uwsgi_param REMOTE_ADDR $remote_addr;
+    uwsgi_param REMOTE_PORT $remote_port;
+    uwsgi_param SERVER_ADDR $server_addr;
+    uwsgi_param SERVER_PORT $server_port;
+    uwsgi_param SERVER_NAME $server_name;
+
+
+
+--> Create a run script in order to run our Nginx proxy
+---------------------------------------------------------
+Add a new file called docker/proxy/run.sh with the following content:
+
+
+    #!/bin/bash
+
+    set -e
+
+    echo "Checking for dhparams.pem"
+    if [ ! -f "/vol/proxy/ssl-dhparams.pem" ]; then
+      echo "dhparams.pem does not exist - creating it"
+      openssl dhparam -out /vol/proxy/ssl-dhparams.pem 2048
+    fi
+
+    # Avoid replacing these with envsubst
+    export host=\$host
+    export request_uri=\$request_uri
+
+    echo "Checking for fullchain.pem"
+    if [ ! -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]; then
+      echo "No SSL cert, enabling HTTP only..."
+      envsubst < /etc/nginx/default.conf.tpl > /etc/nginx/conf.d/default.conf
+    else
+      echo "SSL cert exists, enabling HTTPS..."
+      envsubst < /etc/nginx/default-ssl.conf.tpl > /etc/nginx/conf.d/default.conf
+    fi
+
+    nginx -g 'daemon off;'
+
+
+
+This is a bash script which does the following:
+
+Check if /vol/proxy/ssl-dhparams.pem exists, if not then run openssl dhparam to generate it – this is required the first time we run the proxy
+Check if /etc/letsencrypt/live/${DOMAIN}/fullchain.pem exists, if not then copy the default.conf.tpl – this will cause the server to run without SSL so it can serve the acme challenge
+Set host and require_uri variables to prevent them being overwritten with blank values in the configs
+If the fullchain.pem file does exist, copy the default-ssl.conf.tpl – this will cause the server to enable SSL
+
+
+
+--> Now we can create docker/nginx/Dockerfile and add the following:
+----------------------------------------------------------------------
+
+FROM nginx:1.23.0-alpine
+
+COPY ./nginx/* /etc/nginx/
+COPY ./run.sh /run.sh
+
+ENV APP_HOST=app
+ENV APP_PORT=9000
+
+USER root
+
+RUN apk add --no-cache openssl bash
+RUN chmod +x /run.sh
+
+VOLUME /vol/static
+VOLUME /vol/www
+
+CMD ["/run.sh"]
+
+building nginx image
+---------------------
+💲 cd docker/proxy
+💲 docker build . 
+
+
+
+---> creating the certbot script docker/certbot/certify-init.sh
+----------------------------------------------------------------
+
+#!/bin/sh
+
+# Waits for proxy to be available, then gets the first certificate.
+
+set -e
+
+# Use netcat (nc) to check port 80, and keep checking every 5 seconds
+# until it is available. This is so nginx has time to start before
+# certbot runs.
+until nc -z proxy 80; do
+    echo "Waiting for proxy..."
+    sleep 5s & wait ${!}
+done
+
+echo "Getting certificate..."
+
+# --webroot - is the type of the chalange
+certbot certonly \
+    --webroot \
+    --webroot-path "/vol/www/" \
+    -d "$DOMAIN" \
+    --email $EMAIL \
+    --rsa-key-size 4096 \
+    --agree-tos \
+    --noninteractive
+
+
+--> creating certbot Dockerfile adding the script to it docker/certbot/Dockerfile 
+------------------------------------------------------------------------------------
+FROM certbot/certbot:v1.27.0
+
+COPY certify-init.sh /opt/
+RUN chmod +x /opt/certify-init.sh
+
+ENTRYPOINT []
+CMD ["certbot", "renew"]
+
+
+
+--> configure Django app
+--------------------------
+Open app/app/settings.py and change it to this:
+
+import os
+# ...
+
+# SECURITY WARNING0: keep the secret key used in production secret!
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "setmeinprod")
+
+# SECURITY WARNING: don't run with debug turned on in production!
+DEBUG = bool(int(os.environ.get("DJANGO_DEBUG", 0)))
+
+ALLOWED_HOSTS = [] if DEBUG else os.environ.get("DJANGO_ALLOWED_HOSTS").split(',')
+
+# ...
+
+
+--> Update docker-compose.yml to add an environment variable to enable debug mode, so it looks like this:
+----------------------------------------------------------------------------------------------------------
+version: '3.9'
+
+services:
+  app:
+    build:
+      context: .
+    command: sh -c "python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - ./app:/app
+    ports:
+      - 8000:8000
+    environment:
+      - DJANGO_DEBUG=1
+
+
+
+--> configure docker-compose.deploy.yml specifically for deployment 
+----------------------------------------------------------------
+
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: .
+    restart: always
+    environment:
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - DJANGO_ALLOWED_HOSTS=${DOMAIN}
+
+  proxy:
+    build:
+      context: ./docker/proxy
+    restart: always
+    depends_on:
+      - app
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - certbot-web:/vol/www
+      - proxy-dhparams:/vol/proxy
+      - certbot-certs:/etc/letsencrypt
+    environment:
+      - DOMAIN=${DOMAIN}
+
+  certbot:
+    build:
+      context: ./docker/certbot
+    command: echo "Skipping..."
+    environment:
+      - EMAIL=${ACME_DEFAULT_EMAIL}
+      - DOMAIN=${DOMAIN}
+    volumes:
+      - certbot-web:/vol/www
+      - certbot-certs:/etc/letsencrypt/
+    depends_on:
+      - proxy
+
+volumes:
+  certbot-web:
+  proxy-dhparams:
+  certbot-certs:
+
+
+
+--> Creating .env.sample file in projects root dir
+----------------------------------------------------
+# those are just sample values that will be change on deployment
+
+
+DJANGO_SECRET_KEY=secretkey123
+ACME_DEFAULT_EMAIL=email@example.com
+DOMAIN=example.com
+
+
+
+💲 git add .
+💲 git commit -m "finished deployment code"
