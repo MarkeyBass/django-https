@@ -398,3 +398,98 @@ DOMAIN=example.com
 
 💲 git add .
 💲 git commit -m "finished deployment code"
+
+
+
+---> Create server on AWS (Amazon linux 2)
+----------------------------
+Our server will require the following:
+
+1) Accessible via SSH (22), HTTP (80) and HTTPS (443)
+2) Has Docker and Docker Compose installed
+3) Has crontab – used to automate renewal
+
+Created Aws linux instance with 25 GB
+
+
+💲 ssh ec2-user@ec2-user@ec2-34-193-244-164.compute-1.amazonaws.com
+
+💲 ssh -i "jenkins-controller.pem" ec2-user@ec2-34-193-244-164.compute-1.amazonaws.com
+💲 ssh -i "jenkins-controller.pem" ec2-user@34.193.244.164
+
+
+--> attachig elastic ip to the ec2 (34.193.244.164)
+
+
+# Install Docker
+💲 sudo yum update -y
+💲 sudo amazon-linux-extras install -y docker
+💲 sudo systemctl enable docker.service
+💲 sudo systemctl start docker.service
+# Give the ec2-user the permission to run docker
+💲 sudo usermod -aG docker ec2-user
+
+# Install Docker Compose
+💲 wget https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)
+💲 sudo mv docker-compose-$(uname -s)-$(uname -m) /usr/local/bin/docker-compose
+💲 sudo chmod +x /usr/local/bin/docker-compose
+
+# Install Git
+💲 sudo yum install -y git
+
+
+--> logout && login to the ec2 so that the user receive its permissions
+
+💲 docker --version
+💲 docker-compose --version
+💲 docker run hello-world
+
+
+--> Generate an ssh key on the server in order to allow github connection
+---------------------------------------------------------------------------
+💲 ssh-keygen -t ed25519 -C "GitHub Deploy Key"
+💲 cat ~/.ssh/id_ed25519.pub
+
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFrFo/BgIjpTpoPxleFgWUG3ne4lcwhDid8PzoyAYFOH GitHub Deploy Key
+
+
+--> go to github repo --> settings --> Deploy keys --> Deploy keys / Add new
+
+
+--> clone the project to the EC2
+----------------------------------
+
+💲 git clone git@github.com:MarkeyBass/django-https.git
+
+
+--> Creating domain in Route 53 / or other domain supplier (django-https.markeybass.com)
+
+--> Running the project on the server
+---------------------------------------
+💲 cd django-https
+
+💲 cp .env.sample .env 
+
+--> put proper variables inside .env file
+💲 nano .env
+
+DJANGO_SECRET_KEY=secretkey123
+ACME_DEFAULT_EMAIL=markeybass@gmail.com
+DOMAIN=django-https.markeybass.com
+
+
+--> backup .env the configuration file 
+
+starting the server ❗❗❗
+-------------------------
+(When running the first time this commang will take some to finish...)
+💲 docker-compose -f docker-compose.deploy.yml run --rm certbot /opt/certify-init.sh
+
+
+
+--> Now, run the following to stop and start the service:
+(in order to stop the http first)
+💲 docker-compose -f docker-compose.deploy.yml down
+(restart the server so it can run on https mode)
+💲 docker-compose -f docker-compose.deploy.yml up
+
